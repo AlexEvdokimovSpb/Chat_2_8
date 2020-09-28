@@ -18,11 +18,10 @@ import javafx.stage.Modality;
 import javafx.stage.Stage;
 import javafx.stage.WindowEvent;
 
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
-import java.io.IOException;
+import java.io.*;
 import java.net.Socket;
 import java.net.URL;
+import java.util.ArrayList;
 import java.util.ResourceBundle;
 
 public class Controller implements Initializable {
@@ -48,6 +47,12 @@ public class Controller implements Initializable {
     private Socket socket;
     DataInputStream in;
     DataOutputStream out;
+
+    private File file;
+    private DataOutputStream outToFile;
+    private ArrayList <String> history; // лист для загрузки истории
+    private boolean historyLoaded = false; // переменная по которой определяем загружалась ли история
+    private int sizeHistory = 100; // ограничение размера выводимой истории
 
     private boolean authenticated;
     private String nickname;
@@ -112,6 +117,26 @@ public class Controller implements Initializable {
 
                             if (str.startsWith("/authok")) {
                                 nickname = str.split(" ", 2)[1];
+
+                                // готовим файл с указанным названием
+                                file = new File("history_"+nickname+".txt");
+                                if (!file.exists()){
+                                    file.createNewFile();
+                                }
+
+                                // готовим поток для записи в файл
+                                outToFile = new  DataOutputStream(new FileOutputStream(file, true));
+
+                                history = new ArrayList();
+                                try (BufferedReader inFromFile = new BufferedReader (new FileReader(file))) {
+                                    String line = inFromFile.readLine();
+                                    while (line != null) {
+                                        history.add(line); // построчное копирование из файла истории в arraylist
+                                        line = inFromFile.readLine();
+                                    }
+                                }
+
+
                                 setAuthenticated(true);
                                 break;
                             }
@@ -122,13 +147,25 @@ public class Controller implements Initializable {
                             if (str.startsWith("/regno")) {
                                 regController.addMsgToTextArea("Регистрация не получилась \n возможно логин или ник заняты");
                             }
-
                             textArea.appendText(str + "\n");
                         }
 
                         //цикл работы
                         while (true) {
                             String str = in.readUTF();
+
+                            if (!historyLoaded){
+                                if (history.size()>sizeHistory) { // проверяем, если история больше размера вывода
+                                    for (int i = (history.size()-sizeHistory); i < history.size(); i++) {
+                                        textArea.appendText(history.get(i) + "\n");
+                                    }
+                                }  else { // иначе
+                                    for (int i = 0; i < history.size(); i++) {
+                                        textArea.appendText(history.get(i) + "\n");
+                                    }
+                                }
+                                historyLoaded=true;
+                            }
 
                             if (str.startsWith("/")) {
                                 if (str.equals("/end")) {
@@ -145,6 +182,7 @@ public class Controller implements Initializable {
                                 }
                             } else {
                                 textArea.appendText(str + "\n");
+                                outToFile.writeUTF(str + "\n"); // отправляем полученное в файл
                             }
                         }
                     } catch (IOException e) {
@@ -153,6 +191,7 @@ public class Controller implements Initializable {
                         System.out.println("Мы отключились от сервера");
                         setAuthenticated(false);
                         try {
+                            outToFile.close();
                             socket.close();
                         } catch (IOException e) {
                             e.printStackTrace();
